@@ -1,0 +1,61 @@
+import streamlit as st
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+
+# הגדרות עיצוב למובייל
+st.set_page_config(page_title="S&P 500 Advisor", layout="centered")
+
+# פונקציה לחיבור לגיליון גוגל
+def connect_to_google():
+    # הרשאות גישה
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    # שימוש בקובץ ה-JSON שהורדת (וודא ששמו secrets.json)
+    creds = Credentials.from_service_account_file("secrets.json", scopes=scope)
+    client = gspread.authorize(creds)
+    # פתיחת הגיליון - וודא שהשם כאן תואם בדיוק לשם הגיליון שלך
+    sheet = client.open("MyStockApp").sheet1 
+    return sheet
+
+st.title("📊 יועץ המניות שלי")
+st.markdown("---")
+
+try:
+    sheet = connect_to_google()
+    # קריאת הנתונים לתוך טבלה
+    data = pd.DataFrame(sheet.get_all_records())
+
+    if not data.empty:
+        # לוגיקת הניתוח (50/50)
+        def analyze(row):
+            # 50% טכני: האם המחיר בטווח של 10% מהשיא השנתי?
+            tech = 50 if row['Price'] >= (row['High52'] * 0.9) else 0
+            # 50% פונדמנטלי: מכפיל רווח (PE) בין 0 ל-30
+            fund = 50 if 0 < row['PE'] < 30 else 0
+            return tech + fund
+
+        data['Score'] = data.apply(analyze, axis=1)
+
+        # הצגת התוצאות ככרטיסיות מעוצבות
+        for _, row in data.iterrows():
+            score = row['Score']
+            color = "green" if score >= 75 else "orange" if score >= 50 else "red"
+            
+            with st.container():
+                st.subheader(f"{row['Ticker']}")
+                st.write(f"**מחיר:** ${row['Price']} | **מכפיל רווח:** {row['PE']}")
+                st.markdown(f"**ציון משולב:** :{color}[{score}/100]")
+                
+                if score >= 75:
+                    st.success("✅ איתות קנייה (Buy Signal)")
+                elif score >= 50:
+                    st.info("🟡 המתנה / החזקה (Hold)")
+                else:
+                    st.error("🛑 לא לקנות / יציאה (Avoid)")
+                st.markdown("---")
+    else:
+        st.warning("הגיליון ריק! הכנס נתונים ב-Google Sheets.")
+
+except Exception as e:
+    st.error(f"שגיאת חיבור לנתונים: {e}")
+    st.info("וודא ששיתפת את הגיליון עם האימייל מה-JSON וששם הגיליון בקוד נכון.")
